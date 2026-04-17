@@ -1,0 +1,17 @@
+node_modules/
+dist/
+.vite/
+.superpowers/
+
+# Editor
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Coverage
+coverage/
+
+# Local environment
+.env
+.env.local
