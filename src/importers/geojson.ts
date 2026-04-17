@@ -20,6 +20,45 @@ function pickName(properties: unknown): string | null {
   return null;
 }
 
+/**
+ * Normalize any valid GeoJSON root (RFC 7946 §3) into a flat list of
+ * pseudo-features whose geometry is a single `Point`. Accepts:
+ * `FeatureCollection`, `Feature`, bare `Point`, bare `MultiPoint`, and
+ * `GeometryCollection` (recursed). Non-point geometries are dropped.
+ */
+function normalizeToPointFeatures(root: any): { properties: unknown; lon: number; lat: number }[] {
+  if (!root || typeof root !== 'object') return [];
+  const out: { properties: unknown; lon: number; lat: number }[] = [];
+
+  const pushPoint = (coords: unknown, properties: unknown) => {
+    if (!Array.isArray(coords) || coords.length < 2) return;
+    const [lon, lat] = coords;
+    if (typeof lon !== 'number' || typeof lat !== 'number') return;
+    out.push({ properties, lon, lat });
+  };
+
+  const visitGeometry = (geom: any, properties: unknown) => {
+    if (!geom || typeof geom !== 'object') return;
+    if (geom.type === 'Point') {
+      pushPoint(geom.coordinates, properties);
+    } else if (geom.type === 'MultiPoint' && Array.isArray(geom.coordinates)) {
+      for (const c of geom.coordinates) pushPoint(c, properties);
+    } else if (geom.type === 'GeometryCollection' && Array.isArray(geom.geometries)) {
+      for (const g of geom.geometries) visitGeometry(g, properties);
+    }
+  };
+
+  if (root.type === 'FeatureCollection' && Array.isArray(root.features)) {
+    for (const feat of root.features) visitGeometry(feat?.geometry, feat?.properties);
+  } else if (root.type === 'Feature') {
+    visitGeometry(root.geometry, root.properties);
+  } else {
+    // Bare geometry root (Point, MultiPoint, GeometryCollection, etc.).
+    visitGeometry(root, undefined);
+  }
+  return out;
+}
+
 export function parseGeoJSON(text: string, imageWidth: number, imageHeight: number): ParsedGeoJSON {
   let parsed: any;
   try {
@@ -27,22 +66,16 @@ export function parseGeoJSON(text: string, imageWidth: number, imageHeight: numb
   } catch (e) {
     throw new Error(`GeoJSON parse error: ${(e as Error).message}`);
   }
-  if (!parsed || parsed.type !== 'FeatureCollection' || !Array.isArray(parsed.features)) {
-    throw new Error('GeoJSON must be a FeatureCollection');
+  if (!parsed || typeof parsed !== 'object' || typeof parsed.type !== 'string') {
+    throw new Error('GeoJSON root must be an object with a `type` field');
   }
 
   const warnings: string[] = [];
   const raw: { lat: number; lon: number; label: string }[] = [];
   let unnamedCount = 0;
 
-  for (const feat of parsed.features) {
-    const geom = feat?.geometry;
-    if (!geom || geom.type !== 'Point') continue;
-    const coords = geom.coordinates;
-    if (!Array.isArray(coords) || coords.length < 2) continue;
-    const [lon, lat] = coords;
-    if (typeof lon !== 'number' || typeof lat !== 'number') continue;
-    const name = pickName(feat?.properties);
+  for (const f of normalizeToPointFeatures(parsed)) {
+    const name = pickName(f.properties);
     let label: string;
     if (name !== null) {
       label = name;
@@ -51,7 +84,7 @@ export function parseGeoJSON(text: string, imageWidth: number, imageHeight: numb
       label = `?-${unnamedCount}`;
       warnings.push(`Feature without a recognised name property assigned label ${label}`);
     }
-    raw.push({ lat, lon, label });
+    raw.push({ lat: f.lat, lon: f.lon, label });
   }
 
   const points: ParsedGeoJSON['points'] = [];

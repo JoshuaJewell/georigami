@@ -63,8 +63,47 @@ describe('parseGeoJSON', () => {
     expect(() => parseGeoJSON('{not json}', 100, 100)).toThrow();
   });
 
-  it('throws on a non-FeatureCollection root', () => {
-    expect(() => parseGeoJSON(JSON.stringify({ type: 'Feature' }), 100, 100)).toThrow(/FeatureCollection/);
+  it('throws on a root without a string `type` field', () => {
+    expect(() => parseGeoJSON(JSON.stringify({ foo: 'bar' }), 100, 100)).toThrow(/type/);
+  });
+
+  it('accepts a single Feature with a Point geometry', () => {
+    const json = JSON.stringify({
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [1.5, 50.0] },
+      properties: { name: 'Solo' },
+    });
+    const r = parseGeoJSON(json, 100, 100);
+    expect(r.points).toHaveLength(1);
+    expect(r.points[0]!.label).toBe('Solo');
+  });
+
+  it('accepts a bare Point geometry (no Feature wrapper)', () => {
+    const json = JSON.stringify({ type: 'Point', coordinates: [1.5, 50.0] });
+    const r = parseGeoJSON(json, 100, 100);
+    expect(r.points).toHaveLength(1);
+    expect(r.points[0]!.lon).toBe(1.5);
+  });
+
+  it('expands a MultiPoint geometry into one point per coordinate', () => {
+    const json = FC([
+      { type: 'Feature', geometry: { type: 'MultiPoint', coordinates: [[0, 0], [1, 1], [2, 2]] }, properties: { name: 'Cluster' } },
+    ]);
+    const r = parseGeoJSON(json, 100, 100);
+    expect(r.points).toHaveLength(3);
+  });
+
+  it('recurses into a GeometryCollection root', () => {
+    const json = JSON.stringify({
+      type: 'GeometryCollection',
+      geometries: [
+        { type: 'Point', coordinates: [0, 0] },
+        { type: 'LineString', coordinates: [[0, 0], [1, 1]] },
+        { type: 'Point', coordinates: [1, 1] },
+      ],
+    });
+    const r = parseGeoJSON(json, 100, 100);
+    expect(r.points).toHaveLength(2);
   });
 
   it('returns empty (not throws) for FeatureCollection with no Point features', () => {

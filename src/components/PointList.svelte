@@ -3,7 +3,7 @@
   import { derivePairs } from '../domain/pairs';
   import { parseGeoJSON } from '../importers/geojson';
   import { parseCSV } from '../importers/csv';
-  import { fetchSatelliteForBounds } from '../importers/auto-satellite';
+  import { fetchTilesForBounds, TILE_SOURCES, DEFAULT_TILE_SOURCE_ID, getTileSource } from '../importers/auto-tiles';
   import { autoFitBounds, latLonToWebMercatorPixel, type LatLon } from '../projection/lat-lon';
   import { putImageBlob } from '../persistence/indexeddb';
 
@@ -11,6 +11,7 @@
   let importWarnings = $state<string[]>([]);
   let recalibrateMessage = $state<string | null>(null);
   let autoFetchStatus = $state<string | null>(null);
+  let tileSourceId = $state<string>(DEFAULT_TILE_SOURCE_ID);
 
   let geographicAnchorCount = $derived(
     store.project.geographic.points.filter((p) => p.pinned && p.lon !== undefined && p.lat !== undefined).length,
@@ -60,7 +61,7 @@
   }
 
   /**
-   * Import a GeoJSON and auto-fetch a satellite backdrop sized to its bbox.
+   * Import a GeoJSON and auto-fetch a tile-based backdrop sized to its bbox.
    * The fetched image is in Web Mercator at a known zoom, so we project each
    * point with closed-form math — no auto-fit, no calibration.
    */
@@ -93,15 +94,16 @@
         return;
       }
 
-      autoFetchStatus = 'Fetching satellite tiles…';
-      const sat = await fetchSatelliteForBounds(bounds, {
+      const source = getTileSource(tileSourceId);
+      autoFetchStatus = `Fetching ${source.label} tiles…`;
+      const sat = await fetchTilesForBounds(bounds, source, {
         onProgress: (loaded, total) => {
           autoFetchStatus = `Fetching tiles ${loaded}/${total}…`;
         },
       });
 
       autoFetchStatus = 'Storing image and placing points…';
-      const satFile = new File([sat.blob], `satellite-z${sat.zoom}.jpg`, { type: 'image/jpeg' });
+      const satFile = new File([sat.blob], `${source.id}-z${sat.zoom}.jpg`, { type: 'image/jpeg' });
       await store.loadImage('geographic', satFile);
 
       // store.loadImage uses createImageBitmap which can disagree slightly with
@@ -117,7 +119,7 @@
         store.addPoint('geographic', p.label, x, y, { lon: p.lon, lat: p.lat });
       }
 
-      autoFetchStatus = `Imported ${parsed.points.length} points and a ${sat.width}×${sat.height} satellite backdrop. Source: Esri.`;
+      autoFetchStatus = `Imported ${parsed.points.length} points and a ${sat.width}×${sat.height} ${source.label} backdrop. Source: ${source.attribution}.`;
       if (parsed.warnings.length) importWarnings = parsed.warnings;
     } catch (e) {
       autoFetchStatus = `Auto-fetch failed: ${(e as Error).message}`;
@@ -132,7 +134,12 @@
     <label>Schematic <input type="file" accept=".csv,.json,.geojson" onchange={(e) => importFile('schematic', e)} /></label>
     <label>Geographic <input type="file" accept=".csv,.json,.geojson" onchange={(e) => importFile('geographic', e)} /></label>
     <label class="auto">
-      <strong>Geographic + auto satellite (GeoJSON only)</strong>
+      <strong>Geographic + auto map fetch (GeoJSON only)</strong>
+      <select bind:value={tileSourceId}>
+        {#each TILE_SOURCES as src (src.id)}
+          <option value={src.id}>{src.label}</option>
+        {/each}
+      </select>
       <input type="file" accept=".geojson,.json" onchange={importGeoJSONWithSatellite} />
     </label>
     {#if autoFetchStatus}<p class="status">{autoFetchStatus}</p>{/if}
@@ -214,6 +221,7 @@
   .warnings { color: #fbbf24; font-size: 0.8rem; }
   .auto { background: rgba(37, 99, 235, 0.12); padding: 0.4rem; border-radius: 4px; margin-top: 0.3rem; }
   .auto strong { display: block; font-size: 0.78rem; margin-bottom: 0.2rem; color: #93c5fd; }
+  .auto select { background: #1a1a2e; color: #e5e7eb; border: 1px solid #444; padding: 0.15rem 0.3rem; margin-bottom: 0.3rem; width: 100%; }
   .status { font-size: 0.75rem; color: #9ca3af; margin: 0.3rem 0 0 0; }
   .calibrate { display: flex; flex-direction: column; gap: 0.3rem; padding: 0.4rem 0; }
   .calibrate button { background: #2563eb; padding: 0.35rem 0.6rem; }

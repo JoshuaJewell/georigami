@@ -4,6 +4,12 @@ Fold a real city map into the abstract geometry of its transit diagram (or anyth
 
 Drop a geographic image and a schematic metro map side-by-side, pin matching landmarks on each, and Georigami warps the geography to fit the schematic.
 
+## Previews
+
+![Preview: London geography over TfL Tube map, merged.](./Preview1.png)
+![Preview: London geography over TfL Tube map.](./Preview2.png)
+![Preview: TfL Tube map over London geography.](./Preview3.png)
+
 ## Usage
 
 1. **Load images:** Drag-and-drop your schematic on the left and your geographic image on the right.
